@@ -70,14 +70,14 @@ export async function POST(request: Request) {
         }, { status: 400 });
       }
 
-      // Double-Booking Check:
-      // "one person should not schedule for different place at same time"
-      const bookingKey = `${place.meeting_day}|${place.time_slot}|${person_id}`;
+      // Same-Day Exclusivity Check:
+      // "one person should not schedule for different place on same day"
+      const bookingKey = `${place.meeting_day}|${person_id}`;
       if (bookings.has(bookingKey)) {
         const otherPlaceId = bookings.get(bookingKey);
         const otherPlace = placesMap.get(String(otherPlaceId));
         return NextResponse.json({
-          error: `Validation Error: ${person.name} is double-booked on ${place.meeting_day} ${place.time_slot} at both "${place.name}" and "${otherPlace?.name}".`
+          error: `Validation Error: ${person.name} is already scheduled on ${place.meeting_day} at both "${place.name}" and "${otherPlace?.name}".`
         }, { status: 400 });
       }
       bookings.set(bookingKey, place_id);

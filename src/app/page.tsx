@@ -102,6 +102,7 @@ export default function Home() {
   
   // Loading & Action states
   const [loading, setLoading] = useState<boolean>(true);
+  const [weekLoading, setWeekLoading] = useState<boolean>(false);
   const [savingStatus, setSavingStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
@@ -150,10 +151,21 @@ export default function Home() {
   useEffect(() => {
     async function loadWeekData() {
       try {
+        setWeekLoading(true);
         setSavingStatus("idle");
+        setErrorMessage(null);
+        
         const [schedRes, histRes] = await Promise.all([
-          fetch(`/api/schedule?week_start_date=${weekStartStr}`).then(r => r.json()),
-          fetch("/api/schedule/history").then(r => r.json())
+          fetch(`/api/schedule?week_start_date=${weekStartStr}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "Failed to fetch schedules");
+            return d;
+          }),
+          fetch("/api/schedule/history").then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "Failed to fetch history");
+            return d;
+          })
         ]);
 
         if (Array.isArray(schedRes)) {
@@ -171,8 +183,11 @@ export default function Home() {
         if (Array.isArray(histRes)) {
           setHistory(histRes);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load week schedules", err);
+        setErrorMessage(err.message || "Failed to load schedules for the selected week.");
+      } finally {
+        setWeekLoading(false);
       }
     }
 
@@ -194,16 +209,22 @@ export default function Home() {
   const currentWeekWorkloads = useMemo(() => {
     const workloads: Record<number, number> = {};
     people.forEach(p => {
-      workloads[p.person_id] = 0;
+      workloads[Number(p.person_id)] = 0;
     });
     Object.values(schedules).forEach(pid => {
-      if (pid) workloads[pid] = (workloads[pid] || 0) + 1;
+      if (pid) {
+        const numPid = Number(pid);
+        workloads[numPid] = (workloads[numPid] || 0) + 1;
+      }
     });
     return workloads;
   }, [schedules, people]);
 
-  // Perform a local schedule save (optimistic background sync)
-  const saveScheduleToDb = async (updatedSchedules: Record<number, number | null>) => {
+  // Perform a local schedule save (optimistic background sync with transactional rollback)
+  const saveScheduleToDb = async (
+    updatedSchedules: Record<number, number | null>,
+    previousSchedules: Record<number, number | null>
+  ) => {
     setSavingStatus("saving");
     setErrorMessage(null);
     try {
@@ -242,6 +263,8 @@ export default function Home() {
       console.error(err);
       setSavingStatus("error");
       setErrorMessage(err.message || "An error occurred while saving the schedule.");
+      // Rollback to previous state
+      setSchedules(previousSchedules);
     }
   };
 
@@ -261,38 +284,37 @@ export default function Home() {
   // Change individual assignment
   const handleAssignPerson = (placeId: number, personId: number | null) => {
     const previousAssignment = schedules[placeId];
+    if (Number(previousAssignment) === Number(personId)) return; // No change, skip saving
+    
     const newSchedules = { ...schedules, [placeId]: personId };
     
-    // Perform double-booking validation on the client instantly
     if (personId) {
       const place = places.find(p => p.place_id === placeId);
       if (place) {
-        // Find if this person is already assigned elsewhere at the same time
+        // Find if this person is already assigned elsewhere on the same day
         const doubleBooked = Object.entries(newSchedules).find(([pIdStr, assignedPid]) => {
           const pId = Number(pIdStr);
-          if (pId === placeId || assignedPid !== personId) return false;
+          if (pId === placeId || !assignedPid || Number(assignedPid) !== Number(personId)) return false;
           
           const otherPlace = places.find(p => p.place_id === pId);
-          return otherPlace && 
-            otherPlace.meeting_day === place.meeting_day && 
-            otherPlace.time_slot === place.time_slot;
+          return otherPlace && otherPlace.meeting_day === place.meeting_day;
         });
 
         if (doubleBooked) {
           const otherPlace = places.find(p => p.place_id === Number(doubleBooked[0]));
-          alert(`Conflict! ${people.find(p => p.person_id === personId)?.name} is already scheduled to "${otherPlace?.name}" at the same day & time (${place.meeting_day} ${TIME_SLOT_LABELS[place.time_slot]}).`);
+          alert(`Conflict! ${people.find(p => Number(p.person_id) === Number(personId))?.name} is already scheduled to "${otherPlace?.name}" on ${place.meeting_day}. Only one meeting per day is allowed.`);
           return;
         }
 
         // Show out-of-cycle warnings in the UI dynamically (as a non-blocking toast/notice)
-        const lastWeek = historyMap.get(`${placeId}|${personId}`);
+        const lastWeek = historyMap.get(`${placeId}|${Number(personId)}`);
         if (lastWeek) {
           // Verify if there are other eligible people who have NEVER been scheduled here
           const eligiblePeople = people.filter(p => place.type === "FEMALE" || p.gender === "MALE");
-          const anyNeverScheduled = eligiblePeople.some(p => !historyMap.has(`${placeId}|${p.person_id}`));
+          const anyNeverScheduled = eligiblePeople.some(p => !historyMap.has(`${placeId}|${Number(p.person_id)}`));
           
           if (anyNeverScheduled) {
-            setWarningMessage(`${people.find(p => p.person_id === personId)?.name} was previously scheduled to this place in Week of ${lastWeek}. Other eligible candidates have not been scheduled here yet in this cycle!`);
+            setWarningMessage(`${people.find(p => Number(p.person_id) === Number(personId))?.name} was previously scheduled to this place in Week of ${lastWeek}. Other eligible candidates have not been scheduled here yet in this cycle!`);
             // Auto hide warning message after 5 seconds
             setTimeout(() => setWarningMessage(null), 8000);
           }
@@ -301,7 +323,7 @@ export default function Home() {
     }
 
     setSchedules(newSchedules);
-    saveScheduleToDb(newSchedules);
+    saveScheduleToDb(newSchedules, schedules);
   };
 
   // Run Auto Scheduler
@@ -348,7 +370,7 @@ export default function Home() {
         map[p.place_id] = null;
       });
       setSchedules(map);
-      saveScheduleToDb(map);
+      saveScheduleToDb(map, schedules);
     }
   };
 
@@ -499,7 +521,7 @@ export default function Home() {
       const matchesDay = place.meeting_day === activeDay;
       const matchesSearch = searchQuery === "" || 
         place.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (schedules[place.place_id] && people.find(p => p.person_id === schedules[place.place_id])?.name.toLowerCase().includes(searchQuery.toLowerCase()));
+        (schedules[Number(place.place_id)] !== undefined && schedules[Number(place.place_id)] !== null && people.find(p => Number(p.person_id) === Number(schedules[Number(place.place_id)]))?.name.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchesDay && matchesSearch;
     });
   }, [places, activeDay, searchQuery, schedules, people]);
@@ -688,7 +710,14 @@ export default function Home() {
         </div>
 
         {/* Places & Allocations Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="relative">
+          {weekLoading && (
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] z-20 flex items-center justify-center rounded-2xl">
+              <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+            </div>
+          )}
+          
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 transition-all duration-200 ${weekLoading ? 'opacity-40 pointer-events-none' : ''}`}>
           {filteredPlaces.length === 0 ? (
             <div className="col-span-full py-16 flex flex-col items-center justify-center rounded-2xl bg-zinc-900/20 border border-dashed border-zinc-800 text-zinc-500">
               <Calendar className="w-8 h-8 text-zinc-600 mb-3" />
@@ -708,45 +737,63 @@ export default function Home() {
               });
 
               // 2. Score candidates to show their statuses in the dropdown:
-              // - Double-booked: if booked elsewhere on this day & time-slot.
-              // - Last scheduled week
-              const candidateOptions = eligibleCandidates.map(p => {
-                const personId = p.person_id;
-                
-                // Double booked check
-                const isDoubleBooked = Object.entries(schedules).some(([otherPlaceIdStr, assignedPid]) => {
-                  const otherPlaceId = Number(otherPlaceIdStr);
-                  if (otherPlaceId === place.place_id || assignedPid !== personId) return false;
+              // - Exclude candidates who are already assigned to another place on the SAME DAY.
+              // - Demote candidates assigned on DIFFERENT DAYS in the same week.
+              const candidateOptions = eligibleCandidates
+                .map(p => {
+                  const personId = Number(p.person_id);
                   
-                  const otherPlace = places.find(pl => pl.place_id === otherPlaceId);
-                  return otherPlace && 
-                    otherPlace.meeting_day === place.meeting_day && 
-                    otherPlace.time_slot === place.time_slot;
-                });
+                  // Same-day check (excluding current place)
+                  const isAssignedOnSameDay = Object.entries(schedules).some(([otherPlaceIdStr, assignedPid]) => {
+                    const otherPlaceId = Number(otherPlaceIdStr);
+                    if (otherPlaceId === Number(place.place_id)) return false;
+                    if (!assignedPid || Number(assignedPid) !== personId) return false;
+                    
+                    const otherPlace = places.find(pl => Number(pl.place_id) === otherPlaceId);
+                    return otherPlace && otherPlace.meeting_day === place.meeting_day;
+                  });
 
-                const lastScheduledWeek = historyMap.get(`${place.place_id}|${personId}`) || null;
+                  // Other-day check in same week (excluding current place)
+                  const assignedElsewhereDays = Object.entries(schedules)
+                    .map(([otherPlaceIdStr, assignedPid]) => {
+                      if (!assignedPid || Number(assignedPid) !== personId) return null;
+                      const otherPlaceId = Number(otherPlaceIdStr);
+                      if (otherPlaceId === Number(place.place_id)) return null;
+                      
+                      const otherPlace = places.find(pl => Number(pl.place_id) === otherPlaceId);
+                      return otherPlace && otherPlace.meeting_day !== place.meeting_day ? otherPlace.meeting_day : null;
+                    })
+                    .filter((d): d is typeof DAYS_OF_WEEK[number] => d !== null);
 
-                return {
-                  ...p,
-                  isDoubleBooked,
-                  lastScheduledWeek
-                };
-              });
+                  const lastScheduledWeek = historyMap.get(`${place.place_id}|${personId}`) || null;
+
+                  return {
+                    ...p,
+                    isAssignedOnSameDay,
+                    assignedElsewhereDays,
+                    lastScheduledWeek
+                  };
+                })
+                // Rule: "remove temporary from suggestion box for that day"
+                // (Only keep them if they are NOT assigned to another place on the same day)
+                .filter(cand => !cand.isAssignedOnSameDay);
 
               // Sort dropdown options:
-              // - Available and Never Scheduled first
-              // - Available and Scheduled longest ago second
-              // - Double-booked last
+              // - Candidates who are NOT assigned on other days in this week first (sorted by lastScheduledWeek Epoch/ASC)
+              // - Candidates who ARE assigned on other days in this week last (sorted by lastScheduledWeek Epoch/ASC)
               candidateOptions.sort((a, b) => {
-                if (a.isDoubleBooked && !b.isDoubleBooked) return 1;
-                if (!a.isDoubleBooked && b.isDoubleBooked) return -1;
+                const aHasOther = a.assignedElsewhereDays.length > 0;
+                const bHasOther = b.assignedElsewhereDays.length > 0;
+
+                if (aHasOther && !bHasOther) return 1;
+                if (!aHasOther && bHasOther) return -1;
                 
                 const weekA = a.lastScheduledWeek || "1970-01-01";
                 const weekB = b.lastScheduledWeek || "1970-01-01";
                 return weekA.localeCompare(weekB);
               });
 
-              const currentAssignee = people.find(p => p.person_id === currentAssigneeId);
+              const currentAssignee = people.find(p => Number(p.person_id) === Number(currentAssigneeId));
 
               return (
                 <motion.div 
@@ -775,7 +822,7 @@ export default function Home() {
                     <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Assignee</label>
                     <div className="relative">
                       <select
-                        value={currentAssigneeId || ""}
+                        value={currentAssigneeId !== null ? String(currentAssigneeId) : ""}
                         onChange={(e) => {
                           const val = e.target.value;
                           handleAssignPerson(place.place_id, val ? Number(val) : null);
@@ -789,21 +836,24 @@ export default function Home() {
                         <option value="">Unassigned (कोणीही नाही)</option>
                         {candidateOptions.map(cand => {
                           const statusLabels: string[] = [];
-                          if (cand.isDoubleBooked) statusLabels.push("Double Booked!");
+                          
                           if (cand.lastScheduledWeek) {
                             statusLabels.push(`Prev: ${formatDateForDisplay(new Date(cand.lastScheduledWeek))}`);
                           } else {
                             statusLabels.push("Priority: New");
                           }
 
+                          const suffixLabel = cand.assignedElsewhereDays.length > 0
+                            ? `(${cand.assignedElsewhereDays.join(", ")})`
+                            : `(${cand.gender.charAt(0)})`;
+
                           return (
                             <option 
                               key={cand.person_id} 
-                              value={cand.person_id}
-                              disabled={cand.isDoubleBooked}
-                              className="bg-zinc-950 text-zinc-200 disabled:text-zinc-700"
+                              value={String(cand.person_id)}
+                              className="bg-zinc-950 text-zinc-200"
                             >
-                              {cand.name} ({cand.gender.charAt(0)}) — {statusLabels.join(" | ")}
+                              {cand.name} {suffixLabel} — {statusLabels.join(" | ")}
                             </option>
                           );
                         })}
@@ -832,6 +882,7 @@ export default function Home() {
               );
             })
           )}
+          </div>
         </div>
       </main>
 

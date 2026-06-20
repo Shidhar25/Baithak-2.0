@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
     // 3. Keep track of current week assignments to prevent double booking and balance workload
     // Double booking lock: "person_id|meeting_day|time_slot" -> true
-    const bookedTimeSlots = new Set<string>();
+    const bookedDays = new Set<string>();
     // Workload tracker: person_id -> count of assignments this week
     const workloads = new Map<number, number>();
     for (const p of people) {
@@ -117,8 +117,8 @@ export async function POST(request: Request) {
       // Find first candidate not double booked
       let assigned = false;
       for (const cand of candidates) {
-        const lockKey = `${cand.personId}|${place.meeting_day}|${place.time_slot}`;
-        if (!bookedTimeSlots.has(lockKey)) {
+        const lockKey = `${cand.personId}|${place.meeting_day}`;
+        if (!bookedDays.has(lockKey)) {
           // Assign!
           assignments.push({
             place_id: placeId,
@@ -126,8 +126,8 @@ export async function POST(request: Request) {
             scheduled_date: getScheduledDate(week_start_date, place.meeting_day)
           });
 
-          // Lock timeslot and increase workload
-          bookedTimeSlots.add(lockKey);
+          // Lock day and increase workload
+          bookedDays.add(lockKey);
           workloads.set(cand.personId, cand.workload + 1);
           assigned = true;
           break;
