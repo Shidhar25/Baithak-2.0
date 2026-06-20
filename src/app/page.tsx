@@ -50,8 +50,8 @@ const DAYS_OF_WEEK = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "SUNDAY"] as
 
 const TIME_SLOT_LABELS: Record<string, string> = {
   EARLY_MORNING: "Early Morning (सकाळी)",
-  EARLY_EVENING: "Early Evening (संध्याकाळी लवकर)",
-  LATE_EVENING: "Late Evening (रात्री उशिरा)",
+  EARLY_EVENING: "Early Evening (संध्याकाळी )",
+  LATE_EVENING: "Late Evening (रात्री)",
 };
 
 const DAY_OFFSETS: Record<string, number> = {
@@ -545,7 +545,7 @@ export default function Home() {
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="font-semibold text-lg tracking-tight">Baitha 2.0 Meeting Scheduler</span>
+            <span className="font-semibold text-lg tracking-tight">Baithak Schedule</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -833,14 +833,14 @@ export default function Home() {
                             : "text-zinc-500 border-zinc-900 font-normal italic"
                         }`}
                       >
-                        <option value="">Unassigned (कोणीही नाही)</option>
+                        <option value="">Unassigned</option>
                         {candidateOptions.map(cand => {
                           const statusLabels: string[] = [];
                           
                           if (cand.lastScheduledWeek) {
                             statusLabels.push(`Prev: ${formatDateForDisplay(new Date(cand.lastScheduledWeek))}`);
                           } else {
-                            statusLabels.push("Priority: New");
+                            statusLabels.push("New");
                           }
 
                           const suffixLabel = cand.assignedElsewhereDays.length > 0
