@@ -1,4 +1,7 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// Parse DATE (OID 1082) as a raw string to prevent timezone-shift issues
+types.setTypeParser(1082, (val) => val);
 
 const connectionString = process.env.DATABASE_URL;
 

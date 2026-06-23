@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 
+function formatLocalDate(d: any): string {
+  if (!d) return '';
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${date}`;
+  }
+  return String(d).split('T')[0];
+}
+
 export async function POST(request: Request) {
   const client = await pool.connect();
   try {
@@ -28,9 +39,7 @@ export async function POST(request: Request) {
     // Create a history map: "place_id|person_id" -> last_scheduled_week (string)
     const historyMap = new Map<string, string>();
     for (const h of history) {
-      const dateStr = h.last_scheduled_week instanceof Date 
-        ? h.last_scheduled_week.toISOString().split('T')[0]
-        : String(h.last_scheduled_week).split('T')[0];
+      const dateStr = formatLocalDate(h.last_scheduled_week);
       historyMap.set(`${h.place_id}|${h.person_id}`, dateStr);
     }
 
@@ -68,10 +77,15 @@ export async function POST(request: Request) {
     };
 
     const getScheduledDate = (baseDateStr: string, day: string): string => {
-      const baseDate = new Date(baseDateStr);
+      const [year, month, date] = baseDateStr.split('-').map(Number);
+      const baseDate = new Date(year, month - 1, date);
       const offset = dayOffsets[day.toUpperCase()] || 0;
       baseDate.setDate(baseDate.getDate() + offset);
-      return baseDate.toISOString().split('T')[0];
+      
+      const y = baseDate.getFullYear();
+      const m = String(baseDate.getMonth() + 1).padStart(2, '0');
+      const d = String(baseDate.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     };
 
     // 4. Run Greedy Allocation Algorithm

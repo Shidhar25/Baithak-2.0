@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/app/lib/db';
 
+function formatLocalDate(d: any): string {
+  if (!d) return '';
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${date}`;
+  }
+  return String(d).split('T')[0];
+}
+
 export async function GET() {
   try {
     const res = await query(
@@ -14,9 +25,7 @@ export async function GET() {
     const history = res.rows.map(row => ({
       place_id: Number(row.place_id),
       person_id: Number(row.person_id),
-      last_scheduled_week: row.last_scheduled_week instanceof Date 
-        ? row.last_scheduled_week.toISOString().split('T')[0]
-        : String(row.last_scheduled_week).split('T')[0]
+      last_scheduled_week: formatLocalDate(row.last_scheduled_week)
     }));
 
     return NextResponse.json(history);
