@@ -189,14 +189,22 @@ export default function Home() {
       try {
         setLoading(true);
         const [peopleRes, placesRes] = await Promise.all([
-          fetch("/api/people").then(r => r.json()),
-          fetch("/api/places").then(r => r.json())
+          fetch("/api/people").then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "Failed to fetch people");
+            return d;
+          }),
+          fetch("/api/places").then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "Failed to fetch places");
+            return d;
+          })
         ]);
         setPeople(peopleRes);
         setPlaces(placesRes);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load initial data", err);
-        setErrorMessage("Failed to load setup data from database.");
+        setErrorMessage(err.message || "Failed to load setup data from database.");
       } finally {
         setLoading(false);
       }
@@ -727,9 +735,9 @@ export default function Home() {
           }).join('');
         };
 
-        // Calculate counts
+        // Calculate counts based on place_type
         const getCountsByGender = (day: string, gender: "MALE" | "FEMALE") => {
-          return weekSchedules.filter(s => s.meeting_day === day && s.person_gender === gender && s.person_id).length;
+          return weekSchedules.filter(s => s.meeting_day === day && s.place_type === gender && s.person_id).length;
         };
 
         const getDayTotal = (day: string) => {
@@ -1227,9 +1235,9 @@ export default function Home() {
           }).join('');
         };
 
-        // Calculate counts
+        // Calculate counts based on place_type
         const getCountsByGender = (day: string, gender: "MALE" | "FEMALE") => {
-          return weekSchedules.filter(s => s.meeting_day === day && s.person_gender === gender && s.person_id).length;
+          return weekSchedules.filter(s => s.meeting_day === day && s.place_type === gender && s.person_id).length;
         };
 
         const getDayTotal = (day: string) => {
@@ -1513,14 +1521,21 @@ export default function Home() {
     }
   };
 
-  // Filter places based on Search and Selected Day
+  // Filter and sort places based on Search, Selected Day, and Gender Group
   const filteredPlaces = useMemo(() => {
-    return places.filter(place => {
+    const filtered = places.filter(place => {
       const matchesDay = place.meeting_day === activeDay;
       const matchesSearch = searchQuery === "" || 
         place.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (schedules[Number(place.place_id)] !== undefined && schedules[Number(place.place_id)] !== null && people.find(p => Number(p.person_id) === Number(schedules[Number(place.place_id)]))?.name.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchesDay && matchesSearch;
+    });
+
+    // Sort: MALE groups first, then FEMALE groups
+    return filtered.sort((a, b) => {
+      if (a.type === "MALE" && b.type !== "MALE") return -1;
+      if (a.type !== "MALE" && b.type === "MALE") return 1;
+      return Number(a.place_id) - Number(b.place_id);
     });
   }, [places, activeDay, searchQuery, schedules, people]);
 

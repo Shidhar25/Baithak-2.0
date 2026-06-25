@@ -9,7 +9,7 @@ const pool = new Pool({
   connectionString,
   max: 10, // Limit pool size for serverless environment
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000,
 });
 
 export const query = (text: string, params?: any[]) => pool.query(text, params);
