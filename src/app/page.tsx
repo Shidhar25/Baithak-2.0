@@ -321,7 +321,7 @@ export default function Home() {
     try {
       const scheduleArray = Object.entries(updatedSchedules).map(([placeIdStr, personId]) => {
         const place_id = Number(placeIdStr);
-        const place = places.find(p => p.place_id === place_id);
+        const place = places.find(p => Number(p.place_id) === place_id);
         const scheduled_date = place ? getScheduledDate(weekStartStr, place.meeting_day) : weekStartStr;
         return {
           place_id,
@@ -391,19 +391,19 @@ export default function Home() {
     const newSchedules = { ...schedules, [placeId]: personId };
     
     if (personId) {
-      const place = places.find(p => p.place_id === placeId);
+      const place = places.find(p => Number(p.place_id) === placeId);
       if (place) {
         // Find if this person is already assigned elsewhere on the same day
         const doubleBooked = Object.entries(newSchedules).find(([pIdStr, assignedPid]) => {
           const pId = Number(pIdStr);
           if (pId === placeId || !assignedPid || Number(assignedPid) !== Number(personId)) return false;
           
-          const otherPlace = places.find(p => p.place_id === pId);
+          const otherPlace = places.find(p => Number(p.place_id) === pId);
           return otherPlace && otherPlace.meeting_day === place.meeting_day;
         });
 
         if (doubleBooked) {
-          const otherPlace = places.find(p => p.place_id === Number(doubleBooked[0]));
+          const otherPlace = places.find(p => Number(p.place_id) === Number(doubleBooked[0]));
           alert(`Conflict! ${people.find(p => Number(p.person_id) === Number(personId))?.name} is already scheduled to "${otherPlace?.name}" on ${place.meeting_day}. Only one meeting per day is allowed.`);
           return;
         }
