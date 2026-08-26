@@ -9,7 +9,9 @@ const pool = new Pool({
   connectionString,
   max: 10, // Limit pool size for serverless environment
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  // Neon's compute autosuspends when idle; the first connection after that has to wake it
+  // up, which can take several seconds. Give that cold start enough headroom to finish.
+  connectionTimeoutMillis: 20000,
 });
 
 export const query = (text: string, params?: any[]) => pool.query(text, params);

@@ -15,17 +15,19 @@ function formatLocalDate(d: any): string {
 export async function GET() {
   try {
     const res = await query(
-      `SELECT place_id, person_id, MAX(week_start_date) as last_scheduled_week
-       FROM schedule
-       WHERE person_id IS NOT NULL
-       GROUP BY place_id, person_id`
+      `SELECT s.place_id, s.person_id, MAX(s.scheduled_date) as last_scheduled_date
+       FROM schedule s
+       JOIN place pl ON pl.place_id = s.place_id
+       WHERE s.person_id IS NOT NULL
+         AND UPPER(TRIM(TO_CHAR(s.scheduled_date, 'FMDay'))) = pl.meeting_day
+       GROUP BY s.place_id, s.person_id`
     );
 
-    // Format week_start_date properly (as ISO date YYYY-MM-DD)
+    // Format scheduled_date properly (as ISO date YYYY-MM-DD)
     const history = res.rows.map(row => ({
       place_id: Number(row.place_id),
       person_id: Number(row.person_id),
-      last_scheduled_week: formatLocalDate(row.last_scheduled_week)
+      last_scheduled_date: formatLocalDate(row.last_scheduled_date)
     }));
 
     return NextResponse.json(history);

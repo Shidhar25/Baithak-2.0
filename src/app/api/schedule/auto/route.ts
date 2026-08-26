@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const peopleRes = await client.query('SELECT * FROM person');
     const placesRes = await client.query('SELECT * FROM place');
     const historyRes = await client.query(
-      `SELECT place_id, person_id, MAX(week_start_date) as last_scheduled_week
+      `SELECT place_id, person_id, MAX(scheduled_date) as last_scheduled_date
        FROM schedule
        WHERE person_id IS NOT NULL
        GROUP BY place_id, person_id`
@@ -36,10 +36,10 @@ export async function POST(request: Request) {
     const places = placesRes.rows;
     const history = historyRes.rows;
 
-    // Create a history map: "place_id|person_id" -> last_scheduled_week (string)
+    // Create a history map: "place_id|person_id" -> last_scheduled_date (string)
     const historyMap = new Map<string, string>();
     for (const h of history) {
-      const dateStr = formatLocalDate(h.last_scheduled_week);
+      const dateStr = formatLocalDate(h.last_scheduled_date);
       historyMap.set(`${h.place_id}|${h.person_id}`, dateStr);
     }
 

@@ -43,7 +43,7 @@ interface ScheduleEntry {
 interface HistoryEntry {
   place_id: number;
   person_id: number;
-  last_scheduled_week: string;
+  last_scheduled_date: string;
 }
 
 const DAYS_OF_WEEK = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "SUNDAY"] as const;
@@ -70,6 +70,46 @@ const DAY_MARATHI: Record<string, string> = {
   WEDNESDAY: "बुधवार",
   THURSDAY: "गुरुवार",
   SUNDAY: "रविवार"
+};
+
+// Fixed member export order (matches the physical roster order used for printed reports).
+// Any member not in this list falls back to Marathi alphabetical order, appended after.
+const EXPORT_NAME_ORDER: string[] = [
+  "श्री सखाराम म्हसे",
+  "श्री समीर पिंगळे",
+  "श्री समीर घोसाळकर",
+  "श्री चिंतामण मोंगल",
+  "श्री केशव पिंगळे",
+  "श्री बाळकृष्ण पाटील",
+  "श्री सचिन लोणार",
+  "श्री हनमंत गाडे",
+  "श्री प्रफुल्ल ठाकूर",
+  "श्री राजेंद्र महाडिक",
+  "श्री सुरेश सावंत",
+  "श्री अक्षय लोते",
+  "श्री संतोष महाडिक",
+  "श्री ज्ञानेश्वर किलंजे",
+  "सौ. विजया तटकरे",
+  "सौ. शशिकला पाटील",
+  "सौ. पल्लवी चौलकर",
+  "सौ. दीपाली शेलार",
+  "सौ. राजेश्री गाडे",
+  "सौ. जयमाला पाटील",
+  "सौ. रत्नमाला श्रीखंडे",
+  "सौ. आरती पाटील",
+  "सौ. वैशाली पाटील",
+  "सौ. सेजल जाधव",
+  "सौ. योगिता बांदल",
+  "सो. राजेश्री घारे"
+];
+
+const compareByExportOrder = (a: { name: string }, b: { name: string }): number => {
+  const idxA = EXPORT_NAME_ORDER.indexOf(a.name);
+  const idxB = EXPORT_NAME_ORDER.indexOf(b.name);
+  if (idxA === -1 && idxB === -1) return a.name.localeCompare(b.name, "mr");
+  if (idxA === -1) return 1;
+  if (idxB === -1) return -1;
+  return idxA - idxB;
 };
 
 const formatTimeSlotMarathi = (slot: string): string => {
@@ -147,7 +187,7 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [schedules, setSchedules] = useState<Record<number, number | null>>({}); // place_id -> person_id
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(getMonday(new Date()));
-  const [currentTab, setCurrentTab] = useState<"schedule" | "history">("schedule");
+  const [currentTab, setCurrentTab] = useState<"schedule" | "history" | "assign">("schedule");
   
   // Loading & Action states
   const [loading, setLoading] = useState<boolean>(true);
@@ -175,8 +215,11 @@ export default function Home() {
   const [historyRecords, setHistoryRecords] = useState<any[]>([]);
   const [historySearchLoading, setHistorySearchLoading] = useState<boolean>(false);
   const [historyHasSearched, setHistoryHasSearched] = useState<boolean>(false);
+  const [historyFilterDay, setHistoryFilterDay] = useState<string>("");
+  const [historyFilterPlaceId, setHistoryFilterPlaceId] = useState<string>("");
 
   const weekStartStr = useMemo(() => formatDate(currentWeekStart), [currentWeekStart]);
+  const activeDayDateStr = useMemo(() => getScheduledDate(weekStartStr, activeDay), [weekStartStr, activeDay]);
   const weekEndDisplay = useMemo(() => {
     const end = new Date(currentWeekStart);
     end.setDate(end.getDate() + 6);
@@ -265,7 +308,7 @@ export default function Home() {
   const historyMap = useMemo(() => {
     const map = new Map<string, string>();
     history.forEach(h => {
-      map.set(`${h.place_id}|${h.person_id}`, h.last_scheduled_week);
+      map.set(`${h.place_id}|${h.person_id}`, h.last_scheduled_date);
     });
     return map;
   }, [history]);
@@ -417,14 +460,14 @@ export default function Home() {
         }
 
         // Show out-of-cycle warnings in the UI dynamically (as a non-blocking toast/notice)
-        const lastWeek = historyMap.get(`${placeId}|${Number(personId)}`);
-        if (lastWeek) {
+        const lastDate = historyMap.get(`${placeId}|${Number(personId)}`);
+        if (lastDate) {
           // Verify if there are other eligible people who have NEVER been scheduled here
           const eligiblePeople = people.filter(p => place.type === "FEMALE" || p.gender === "MALE");
           const anyNeverScheduled = eligiblePeople.some(p => !historyMap.has(`${placeId}|${Number(p.person_id)}`));
-          
+
           if (anyNeverScheduled) {
-            setWarningMessage(`${people.find(p => Number(p.person_id) === Number(personId))?.name} यांना पूर्वी ${formatDevnagariDate(lastWeek)} च्या आठवड्यात येथे संधी मिळाली होती. इतर पात्र सदस्यांना या चक्रात अद्याप संधी मिळालेली नाही!`);
+            setWarningMessage(`${people.find(p => Number(p.person_id) === Number(personId))?.name} यांना पूर्वी ${formatDevnagariDate(lastDate)} रोजी येथे संधी मिळाली होती. इतर पात्र सदस्यांना या चक्रात अद्याप संधी मिळालेली नाही!`);
             // Auto hide warning message after 8 seconds
             setTimeout(() => setWarningMessage(null), 8000);
           }
@@ -650,8 +693,8 @@ export default function Home() {
         writeCell("I", 4, `रविवार - ${getDayDateStr(wsd, 6)}`, headerGreenStyle);
 
         // Group people
-        const males = people.filter(p => p.gender === "MALE").sort((a, b) => a.name.localeCompare(b.name, "mr"));
-        const females = people.filter(p => p.gender === "FEMALE").sort((a, b) => a.name.localeCompare(b.name, "mr"));
+        const males = people.filter(p => p.gender === "MALE").sort(compareByExportOrder);
+        const females = people.filter(p => p.gender === "FEMALE").sort(compareByExportOrder);
 
         let currentRow = 5;
 
@@ -971,8 +1014,8 @@ export default function Home() {
 
         // Write card helper
         const writeCard = (person: any, personSchedules: any[], colOffset: number, startRow: number) => {
-          const colLetters = colOffset === 0 
-            ? ["B", "C", "D", "E", "F"] 
+          const colLetters = colOffset === 0
+            ? ["B", "C", "D", "E", "F"]
             : ["H", "I", "J", "K", "L"];
 
           const colIndices = colOffset === 0
@@ -1027,7 +1070,7 @@ export default function Home() {
             if (a.gender !== b.gender) {
               return a.gender === "MALE" ? -1 : 1; // Males first
             }
-            return a.name.localeCompare(b.name, "mr"); // Marathi alphabetical
+            return compareByExportOrder(a, b);
           });
 
         activePeople.forEach((person, idx) => {
@@ -1068,281 +1111,10 @@ export default function Home() {
     }
   };
 
-  // EXPORT TO PDF
-  const handlePdfExport = async (isRange: boolean) => {
-    try {
-      setExportLoading(true);
-      let dataToExport: any[] = [];
-
-      if (!isRange) {
-        const res = await fetch(`/api/schedule?week_start_date=${weekStartStr}`).then(r => r.json());
-        dataToExport = res;
-      } else {
-        let start = parseLocalDate(exportStartDate);
-        const end = parseLocalDate(exportEndDate);
-        start = getMonday(start);
-        const weekDates: string[] = [];
-        
-        while (start <= end) {
-          weekDates.push(formatDate(start));
-          start.setDate(start.getDate() + 7);
-        }
-
-        const allSchedules = await Promise.all(
-          weekDates.map(dateStr => 
-            fetch(`/api/schedule?week_start_date=${dateStr}`).then(r => r.json())
-          )
-        );
-        dataToExport = allSchedules.flat();
-      }
-
-      if (dataToExport.length === 0) {
-        alert("No schedule records found to export.");
-        return;
-      }
-
-      // Group data by week_start_date
-      const dataByWeek: Record<string, any[]> = {};
-      dataToExport.forEach(item => {
-        const wsd = item.week_start_date;
-        if (!dataByWeek[wsd]) dataByWeek[wsd] = [];
-        dataByWeek[wsd].push(item);
-      });
-
-      // Load local Noto Sans Devanagari font
-      const fontRes = await fetch("/NotoSansDevanagari-Regular.ttf");
-      const fontBlob = await fontRes.blob();
-      const fontBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(fontBlob);
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          resolve(base64data.split(",")[1]);
-        };
-      });
-
-      const doc = new jsPDF("l", "mm", "a4");
-      const sortedWeeks = Object.keys(dataByWeek).sort();
-
-      sortedWeeks.forEach((wsd, index) => {
-        if (index > 0) {
-          doc.addPage();
-        }
-
-        // Setup font
-        doc.addFileToVFS("NotoSansDevanagari-Regular.ttf", fontBase64);
-        doc.addFont("NotoSansDevanagari-Regular.ttf", "NotoSansDevanagari", "normal");
-        doc.setFont("NotoSansDevanagari");
-
-        const weekSchedules = dataByWeek[wsd];
-        const mondayDate = parseLocalDate(wsd);
-        const sundayDate = new Date(mondayDate);
-        sundayDate.setDate(sundayDate.getDate() + 6);
-
-        // Date helpers for this specific week
-        const formatRow3Date = (d: Date): string => {
-          const day = d.getDate();
-          const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-          const month = monthNames[d.getMonth()];
-          const year = String(d.getFullYear()).slice(-2);
-          return `${day}-${month}-${year}`;
-        };
-
-        const getDayDateStr = (baseDateStr: string, offset: number) => {
-          const d = parseLocalDate(baseDateStr);
-          d.setDate(d.getDate() + offset);
-          return String(d.getDate()).padStart(2, "0");
-        };
-
-        const pageWidth = doc.internal.pageSize.getWidth();
-
-        // 1. Centered header text
-        doc.setFontSize(12);
-        doc.text("॥ श्री राम समर्थ ॥", pageWidth / 2, 10, { align: "center" });
-        doc.text("॥ जय जय रघुवीर समर्थ ॥", pageWidth / 2, 16, { align: "center" });
-
-        // 2. Subtitle left & right
-        doc.setFontSize(10);
-        doc.text("श्रीबैठक समिती - खालापूर", 14, 22);
-        doc.text(`${formatRow3Date(mondayDate)} ते ${formatRow3Date(sundayDate)}`, pageWidth - 14, 22, { align: "right" });
-
-        // Build table matrix rows
-        const columns = [
-          "सदस्याचे नाव",
-          `सोमवार-${getDayDateStr(wsd, 0)}`,
-          `मंगळवार-${getDayDateStr(wsd, 1)}`,
-          `बुधवार-${getDayDateStr(wsd, 2)}`,
-          `गुरुवार -${getDayDateStr(wsd, 3)}`,
-          "", 
-          `रविवार - ${getDayDateStr(wsd, 6)}`
-        ];
-
-        const males = people.filter(p => p.gender === "MALE").sort((a, b) => a.name.localeCompare(b.name, "mr"));
-        const females = people.filter(p => p.gender === "FEMALE").sort((a, b) => a.name.localeCompare(b.name, "mr"));
-
-        const tableRows: string[][] = [];
-
-        const findPlace = (personId: number, day: string) => {
-          const entry = weekSchedules.find(s => Number(s.person_id) === Number(personId) && s.meeting_day === day);
-          return entry ? entry.place_name || "" : "";
-        };
-
-        // Write Male rows
-        males.forEach(person => {
-          tableRows.push([
-            person.name,
-            findPlace(person.person_id, "MONDAY"),
-            findPlace(person.person_id, "TUESDAY"),
-            findPlace(person.person_id, "WEDNESDAY"),
-            findPlace(person.person_id, "THURSDAY"),
-            "",
-            findPlace(person.person_id, "SUNDAY")
-          ]);
-        });
-
-        // Blank rows (females start at index 18, so Row 23 in Excel 1-based header rows)
-        const femaleStartRowIdx = Math.max(18, tableRows.length + 4);
-        while (tableRows.length < femaleStartRowIdx) {
-          tableRows.push(["", "", "", "", "", "", ""]);
-        }
-
-        // Write Female rows
-        females.forEach(person => {
-          tableRows.push([
-            person.name,
-            findPlace(person.person_id, "MONDAY"),
-            findPlace(person.person_id, "TUESDAY"),
-            findPlace(person.person_id, "WEDNESDAY"),
-            findPlace(person.person_id, "THURSDAY"),
-            "",
-            findPlace(person.person_id, "SUNDAY")
-          ]);
-        });
-
-        // Spacer to totals row (Excel Row 35 is index 30 in body rows)
-        const totalStartRowIdx = Math.max(30, tableRows.length);
-        while (tableRows.length < totalStartRowIdx) {
-          tableRows.push(["", "", "", "", "", "", ""]);
-        }
-
-        // Helper to convert standard digits to Devnagari digits
-        const toDevnagariNumLocal = (num: number): string => {
-          if (num === 0) return "";
-          const devnagariDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
-          return String(num).split('').map(char => {
-            const digit = parseInt(char, 10);
-            return isNaN(digit) ? char : devnagariDigits[digit];
-          }).join('');
-        };
-
-        // Calculate counts based on place_type
-        const getCountsByGender = (day: string, gender: "MALE" | "FEMALE") => {
-          return weekSchedules.filter(s => s.meeting_day === day && s.place_type === gender && s.person_id).length;
-        };
-
-        const getDayTotal = (day: string) => {
-          const m = getCountsByGender(day, "MALE");
-          const f = getCountsByGender(day, "FEMALE");
-          return m + f;
-        };
-
-        // Row 35: Male count
-        tableRows.push([
-          "",
-          toDevnagariNumLocal(getCountsByGender("MONDAY", "MALE")),
-          toDevnagariNumLocal(getCountsByGender("TUESDAY", "MALE")),
-          toDevnagariNumLocal(getCountsByGender("WEDNESDAY", "MALE")),
-          toDevnagariNumLocal(getCountsByGender("THURSDAY", "MALE")),
-          "",
-          toDevnagariNumLocal(getCountsByGender("SUNDAY", "MALE"))
-        ]);
-
-        // Row 36: Female count
-        tableRows.push([
-          "",
-          toDevnagariNumLocal(getCountsByGender("MONDAY", "FEMALE")),
-          toDevnagariNumLocal(getCountsByGender("TUESDAY", "FEMALE")),
-          toDevnagariNumLocal(getCountsByGender("WEDNESDAY", "FEMALE")),
-          toDevnagariNumLocal(getCountsByGender("THURSDAY", "FEMALE")),
-          "",
-          toDevnagariNumLocal(getCountsByGender("SUNDAY", "FEMALE"))
-        ]);
-
-        // Row 37: Total count
-        tableRows.push([
-          "",
-          toDevnagariNumLocal(getDayTotal("MONDAY")),
-          toDevnagariNumLocal(getDayTotal("TUESDAY")),
-          toDevnagariNumLocal(getDayTotal("WEDNESDAY")),
-          toDevnagariNumLocal(getDayTotal("THURSDAY")),
-          "",
-          toDevnagariNumLocal(getDayTotal("SUNDAY"))
-        ]);
-
-        // Draw matrix table using autoTable
-        autoTable(doc, {
-          startY: 25,
-          head: [columns],
-          body: tableRows,
-          styles: {
-            font: "NotoSansDevanagari",
-            fontSize: 7.5,
-            cellPadding: 0.8,
-            lineColor: [0, 0, 0],
-            lineWidth: 0.1,
-            textColor: [0, 0, 0]
-          },
-          columnStyles: {
-            0: { halign: "left", cellWidth: 50 },
-            1: { halign: "center" },
-            2: { halign: "center" },
-            3: { halign: "center" },
-            4: { halign: "center" },
-            5: { halign: "center", cellWidth: 8 },
-            6: { halign: "center" }
-          },
-          didParseCell: function (data) {
-            data.cell.styles.font = "NotoSansDevanagari";
-
-            if (data.section === "head") {
-              if (data.column.index === 0 || data.column.index === 5) {
-                data.cell.styles.fillColor = [255, 255, 255];
-                data.cell.styles.textColor = [0, 0, 0];
-              } else {
-                data.cell.styles.fillColor = [0, 176, 80];
-                data.cell.styles.textColor = [0, 0, 0];
-              }
-              data.cell.styles.halign = "center";
-              data.cell.styles.fontStyle = "bold";
-            } else if (data.section === "body") {
-              const totalRowsStart = data.table.body.length - 3;
-              if (data.row.index >= totalRowsStart) {
-                data.cell.styles.fontStyle = "bold";
-                data.cell.styles.fillColor = [245, 245, 245];
-              }
-            }
-          }
-        });
-      });
-
-      const fileName = isRange 
-        ? `Schedules_Range_${exportStartDate}_to_${exportEndDate}.pdf`
-        : `Schedules_Week_${weekStartStr}.pdf`;
-
-      doc.save(fileName);
-      setShowExportModal(false);
-    } catch (error) {
-      console.error(error);
-      alert("Failed to export schedule to PDF.");
-    } finally {
-      setExportLoading(false);
-    }
-  };
-
   // EXPORT PERSON HISTORY TO EXCEL (MARATHI ONLY)
   const handleHistoryExcelExport = () => {
     try {
-      if (historyRecords.length === 0) return;
+      if (filteredHistoryRecords.length === 0) return;
       const personName = people.find(p => String(p.person_id) === selectedHistoryPersonId)?.name || "";
 
       const workbook = XLSX.utils.book_new();
@@ -1415,7 +1187,7 @@ export default function Home() {
       writeCell("E", 4, "वेळ", headerStyle);
 
       // Data Rows
-      historyRecords.forEach((record, index) => {
+      filteredHistoryRecords.forEach((record, index) => {
         const rowNum = 5 + index;
         writeCell("A", rowNum, toDevnagariNum(index + 1), cellStyle);
         writeCell("B", rowNum, formatDevnagariDate(record.scheduled_date), cellStyle);
@@ -1424,7 +1196,7 @@ export default function Home() {
         writeCell("E", rowNum, formatTimeSlotMarathi(record.time_slot), cellStyle);
       });
 
-      const maxRow = 4 + historyRecords.length;
+      const maxRow = 4 + filteredHistoryRecords.length;
       ws["!ref"] = `A1:E${maxRow}`;
 
       XLSX.utils.book_append_sheet(workbook, ws, "इतिहास");
@@ -1438,7 +1210,7 @@ export default function Home() {
   // EXPORT PERSON HISTORY TO PDF (MARATHI ONLY)
   const handleHistoryPdfExport = async () => {
     try {
-      if (historyRecords.length === 0) return;
+      if (filteredHistoryRecords.length === 0) return;
       const personName = people.find(p => String(p.person_id) === selectedHistoryPersonId)?.name || "";
 
       // Load local Noto Sans Devanagari font
@@ -1476,7 +1248,7 @@ export default function Home() {
         "वेळ"
       ];
 
-      const tableRows = historyRecords.map((record, index) => [
+      const tableRows = filteredHistoryRecords.map((record, index) => [
         toDevnagariNum(index + 1),
         formatDevnagariDate(record.scheduled_date),
         DAY_MARATHI[record.meeting_day] || record.meeting_day,
@@ -1520,6 +1292,15 @@ export default function Home() {
       alert("Failed to export history to PDF.");
     }
   };
+
+  // Apply Day / Place filters to the fetched person history records
+  const filteredHistoryRecords = useMemo(() => {
+    return historyRecords.filter(record => {
+      const matchesDay = !historyFilterDay || record.meeting_day === historyFilterDay;
+      const matchesPlace = !historyFilterPlaceId || Number(record.place_id) === Number(historyFilterPlaceId);
+      return matchesDay && matchesPlace;
+    });
+  }, [historyRecords, historyFilterDay, historyFilterPlaceId]);
 
   // Filter and sort places based on Search, Selected Day, and Gender Group
   const filteredPlaces = useMemo(() => {
@@ -1583,6 +1364,16 @@ export default function Home() {
                 }`}
               >
                 History
+              </button>
+              <button
+                onClick={() => setCurrentTab("assign")}
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  currentTab === "assign"
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-650 hover:text-slate-900"
+                }`}
+              >
+                Assign Map
               </button>
             </div>
           </div>
@@ -1737,28 +1528,35 @@ export default function Home() {
             {/* Navigation Tabs and Search */}
             <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
               {/* Day Tabs */}
-              <div className="flex p-1 bg-slate-100 rounded-xl border border-slate-200 overflow-x-auto">
-                {DAYS_OF_WEEK.map((day) => {
-                  const isAllocated = isDayFullyAllocated(day);
-                  const isActive = activeDay === day;
-                  return (
-                    <button
-                      key={day}
-                      onClick={() => setActiveDay(day)}
-                      className={`px-5 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap border cursor-pointer ${
-                        isActive
-                          ? isAllocated
-                            ? "bg-emerald-600 text-white shadow-sm border-emerald-700"
-                            : "bg-white text-slate-900 shadow-xs border-slate-250"
-                          : isAllocated
-                            ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                            : "text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-200/50"
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
+              <div className="flex flex-col gap-2">
+                <div className="flex p-1 bg-slate-100 rounded-xl border border-slate-200 overflow-x-auto">
+                  {DAYS_OF_WEEK.map((day) => {
+                    const isAllocated = isDayFullyAllocated(day);
+                    const isActive = activeDay === day;
+                    const dayDate = getScheduledDate(weekStartStr, day);
+                    return (
+                      <button
+                        key={day}
+                        onClick={() => setActiveDay(day)}
+                        title={formatDateForDisplay(parseLocalDate(dayDate))}
+                        className={`px-5 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap border cursor-pointer ${
+                          isActive
+                            ? isAllocated
+                              ? "bg-emerald-600 text-white shadow-sm border-emerald-700"
+                              : "bg-white text-slate-900 shadow-xs border-slate-250"
+                            : isAllocated
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                              : "text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-200/50"
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-xs font-semibold text-slate-500 px-1">
+                  {activeDay} · {formatDateForDisplay(parseLocalDate(activeDayDateStr))}
+                </span>
               </div>
 
               {/* Search bar */}
@@ -1827,28 +1625,28 @@ export default function Home() {
                         })
                         .filter((d): d is typeof DAYS_OF_WEEK[number] => d !== null);
 
-                      const lastScheduledWeek = historyMap.get(`${place.place_id}|${personId}`) || null;
+                      const lastScheduledDate = historyMap.get(`${place.place_id}|${personId}`) || null;
 
                       return {
                         ...p,
                         isAssignedOnSameDay,
                         assignedElsewhereDays,
-                        lastScheduledWeek
+                        lastScheduledDate
                       };
                     })
                     .filter(cand => !cand.isAssignedOnSameDay);
 
-                  // Sort dropdown options:
+                  // Sort dropdown options: never-scheduled / oldest last-assigned date first
                   candidateOptions.sort((a, b) => {
                     const aHasOther = a.assignedElsewhereDays.length > 0;
                     const bHasOther = b.assignedElsewhereDays.length > 0;
 
                     if (aHasOther && !bHasOther) return 1;
                     if (!aHasOther && bHasOther) return -1;
-                    
-                    const weekA = a.lastScheduledWeek || "1970-01-01";
-                    const weekB = b.lastScheduledWeek || "1970-01-01";
-                    return weekA.localeCompare(weekB);
+
+                    const dateA = a.lastScheduledDate || "1970-01-01";
+                    const dateB = b.lastScheduledDate || "1970-01-01";
+                    return dateA.localeCompare(dateB);
                   });
 
                   const currentAssignee = people.find(p => Number(p.person_id) === Number(currentAssigneeId));
@@ -1872,6 +1670,7 @@ export default function Home() {
                         </div>
                         <div className="text-right text-xs text-slate-500 flex flex-col gap-1 font-medium">
                           <span>{place.meeting_day}</span>
+                          <span>{formatDateForDisplay(parseLocalDate(getScheduledDate(weekStartStr, place.meeting_day)))}</span>
                           <span>{TIME_SLOT_LABELS[place.time_slot].split(" ")[0]}</span>
                         </div>
                       </div>
@@ -1895,8 +1694,8 @@ export default function Home() {
                             {candidateOptions.map(cand => {
                               const statusLabels: string[] = [];
                               
-                              if (cand.lastScheduledWeek) {
-                                statusLabels.push(`Prev: ${formatDateForDisplay(parseLocalDate(cand.lastScheduledWeek))}`);
+                              if (cand.lastScheduledDate) {
+                                statusLabels.push(`Prev: ${formatDateForDisplay(parseLocalDate(cand.lastScheduledDate))}`);
                               } else {
                                 statusLabels.push("New");
                               }
@@ -1943,12 +1742,12 @@ export default function Home() {
               </div>
             </div>
           </>
-        ) : (
+        ) : currentTab === "history" ? (
           <>
             {/* Date Range & Person selector for History */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
-                
+              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 flex-1">
+
                 {/* Person selector */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">सदस्य (Member)</label>
@@ -1991,10 +1790,53 @@ export default function Home() {
                   />
                 </div>
 
+                {/* Day filter */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">वार (Day)</label>
+                  <div className="relative">
+                    <select
+                      value={historyFilterDay}
+                      onChange={(e) => setHistoryFilterDay(e.target.value)}
+                      className="w-full h-10 px-3 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none appearance-none transition-all cursor-pointer text-slate-800 focus:border-indigo-500 font-medium"
+                    >
+                      <option value="">सर्व वार (All Days)</option>
+                      {DAYS_OF_WEEK.map(day => (
+                        <option key={day} value={day} className="bg-white">
+                          {DAY_MARATHI[day] || day}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Place filter */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ठिकाण (Place)</label>
+                  <div className="relative">
+                    <select
+                      value={historyFilterPlaceId}
+                      onChange={(e) => setHistoryFilterPlaceId(e.target.value)}
+                      className="w-full h-10 px-3 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none appearance-none transition-all cursor-pointer text-slate-800 focus:border-indigo-500 font-medium"
+                    >
+                      <option value="">सर्व ठिकाणे (All Places)</option>
+                      {places
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name, "mr"))
+                        .map(pl => (
+                          <option key={pl.place_id} value={String(pl.place_id)} className="bg-white">
+                            {pl.name}
+                          </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <button 
+                <button
                   onClick={fetchPersonHistory}
                   disabled={historySearchLoading || !selectedHistoryPersonId}
                   className="h-10 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50"
@@ -2007,7 +1849,7 @@ export default function Home() {
                   इतिहास शोधा (Search)
                 </button>
 
-                {historyRecords.length > 0 && (
+                {filteredHistoryRecords.length > 0 && (
                   <>
                     <button
                       onClick={handleHistoryExcelExport}
@@ -2041,10 +1883,10 @@ export default function Home() {
                   <Calendar className="w-12 h-12 text-slate-300 mb-3" />
                   <p className="text-sm font-medium">सदस्याची माहिती मिळवण्यासाठी वरील पर्याय निवडून "इतिहास शोधा" बटणावर क्लिक करा.</p>
                 </div>
-              ) : historyRecords.length === 0 ? (
+              ) : filteredHistoryRecords.length === 0 ? (
                 <div className="py-20 flex flex-col items-center justify-center rounded-2xl bg-white border border-slate-200 text-slate-500 shadow-xs">
                   <Search className="w-12 h-12 text-slate-350 mb-3" />
-                  <p className="text-sm font-medium">निवडलेल्या कालावधीत कोणताही इतिहास सापडला नाही.</p>
+                  <p className="text-sm font-medium">निवडलेल्या कालावधीत/निकषांमध्ये कोणताही इतिहास सापडला नाही.</p>
                 </div>
               ) : (
                 <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
@@ -2060,7 +1902,7 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm text-slate-800">
-                        {historyRecords.map((record, index) => {
+                        {filteredHistoryRecords.map((record, index) => {
                           return (
                             <tr key={record.schedule_id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-6 py-3.5 text-center font-semibold text-slate-500">
@@ -2086,6 +1928,70 @@ export default function Home() {
                   </div>
                 </div>
               )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Person -> Day -> Place assignment map */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {people
+                .slice()
+                .sort((a, b) => {
+                  if (a.gender !== b.gender) return a.gender === "MALE" ? -1 : 1;
+                  return a.name.localeCompare(b.name, "mr");
+                })
+                .map(person => (
+                  <div
+                    key={person.person_id}
+                    className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col gap-3"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-655">
+                        {person.gender === "MALE" ? "M" : "F"}
+                      </div>
+                      <h3 className="font-semibold text-slate-800">{person.name}</h3>
+                    </div>
+
+                    <div className="flex flex-col divide-y divide-slate-100">
+                      {DAYS_OF_WEEK.map(day => {
+                        const dayPlaces = places
+                          .filter(pl => pl.meeting_day === day)
+                          .filter(pl => pl.type === "MALE" ? person.gender === "MALE" : true)
+                          .map(pl => ({
+                            place: pl,
+                            lastDate: historyMap.get(`${pl.place_id}|${person.person_id}`) || null
+                          }))
+                          .sort((a, b) => {
+                            const dateA = a.lastDate || "1970-01-01";
+                            const dateB = b.lastDate || "1970-01-01";
+                            return dateA.localeCompare(dateB);
+                          });
+
+                        if (dayPlaces.length === 0) return null;
+
+                        return (
+                          <div key={day} className="py-2.5 flex items-start justify-between gap-3">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider w-24 shrink-0 pt-0.5">
+                              {DAY_MARATHI[day] || day}
+                            </span>
+                            <div className="flex-1 flex flex-col gap-1.5 items-end text-right">
+                              {dayPlaces.map(({ place: pl, lastDate }) => (
+                                <div key={pl.place_id} className="text-xs flex items-center gap-2">
+                                  <span className="font-medium text-slate-700">{pl.name}</span>
+                                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                    lastDate ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"
+                                  }`}>
+                                    {lastDate ? formatDateForDisplay(parseLocalDate(lastDate)) : "Never"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
             </div>
           </>
         )}
@@ -2127,7 +2033,7 @@ export default function Home() {
                   <h4 className="text-xs font-bold text-slate-50 uppercase tracking-wider">Option 1: Export Current Week</h4>
                   <p className="text-xs text-slate-400">Export only the active selected week ({formatDateForDisplay(currentWeekStart)}).</p>
                   
-                  <div className="grid grid-cols-3 gap-3 mt-1">
+                  <div className="grid grid-cols-2 gap-3 mt-1">
                     <button
                       onClick={() => handleExcelExport(false)}
                       disabled={exportLoading}
@@ -2135,15 +2041,6 @@ export default function Home() {
                     >
                       <FileSpreadsheet className="w-4 h-4" />
                       Excel File
-                    </button>
-                    
-                    <button
-                      onClick={() => handlePdfExport(false)}
-                      disabled={exportLoading}
-                      className="h-10 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      <FileText className="w-4 h-4" />
-                      PDF File
                     </button>
 
                     <button
@@ -2184,7 +2081,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 mt-1">
+                  <div className="grid grid-cols-2 gap-3 mt-1">
                     <button
                       onClick={() => handleExcelExport(true)}
                       disabled={exportLoading}
@@ -2196,19 +2093,6 @@ export default function Home() {
                         <FileSpreadsheet className="w-4 h-4" />
                       )}
                       Export Excel
-                    </button>
-                    
-                    <button
-                      onClick={() => handlePdfExport(true)}
-                      disabled={exportLoading}
-                      className="h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      {exportLoading ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <FileText className="w-4 h-4" />
-                      )}
-                      Export PDF
                     </button>
 
                     <button
