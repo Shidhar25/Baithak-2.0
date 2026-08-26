@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, ArrowRight, Calendar, Sparkles, Check, AlertCircle, 
@@ -256,53 +256,54 @@ export default function Home() {
     init();
   }, []);
 
-  // Fetch schedule and history when week changes
-  useEffect(() => {
-    async function loadWeekData() {
-      try {
-        setWeekLoading(true);
-        setSavingStatus("idle");
-        setErrorMessage(null);
-        
-        const [schedRes, histRes] = await Promise.all([
-          fetch(`/api/schedule?week_start_date=${weekStartStr}`).then(async r => {
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.error || "Failed to fetch schedules");
-            return d;
-          }),
-          fetch("/api/schedule/history").then(async r => {
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.error || "Failed to fetch history");
-            return d;
-          })
-        ]);
+  // Fetch schedule and history for the currently selected week (also used by the manual refresh button)
+  const loadWeekData = useCallback(async () => {
+    try {
+      setWeekLoading(true);
+      setSavingStatus("idle");
+      setErrorMessage(null);
 
-        if (Array.isArray(schedRes)) {
-          const map: Record<number, number | null> = {};
-          // Initialize map with nulls for all places
-          places.forEach(p => {
-            map[p.place_id] = null;
-          });
-          // Fill in existing schedules
-          schedRes.forEach((s: ScheduleEntry) => {
-            map[s.place_id] = s.person_id;
-          });
-          setSchedules(map);
-        }
-        if (Array.isArray(histRes)) {
-          setHistory(histRes);
-        }
-      } catch (err: any) {
-        console.error("Failed to load week schedules", err);
-        setErrorMessage(err.message || "Failed to load schedules for the selected week.");
-      } finally {
-        setWeekLoading(false);
+      const [schedRes, histRes] = await Promise.all([
+        fetch(`/api/schedule?week_start_date=${weekStartStr}`).then(async r => {
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "Failed to fetch schedules");
+          return d;
+        }),
+        fetch("/api/schedule/history").then(async r => {
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || "Failed to fetch history");
+          return d;
+        })
+      ]);
+
+      if (Array.isArray(schedRes)) {
+        const map: Record<number, number | null> = {};
+        // Initialize map with nulls for all places
+        places.forEach(p => {
+          map[p.place_id] = null;
+        });
+        // Fill in existing schedules
+        schedRes.forEach((s: ScheduleEntry) => {
+          map[s.place_id] = s.person_id;
+        });
+        setSchedules(map);
       }
+      if (Array.isArray(histRes)) {
+        setHistory(histRes);
+      }
+    } catch (err: any) {
+      console.error("Failed to load week schedules", err);
+      setErrorMessage(err.message || "Failed to load schedules for the selected week.");
+    } finally {
+      setWeekLoading(false);
     }
+  }, [weekStartStr, places]);
 
+  useEffect(() => {
     if (places.length > 0) {
       loadWeekData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStartStr, places]);
 
   // Helper mapping place -> person history
@@ -1585,7 +1586,20 @@ export default function Home() {
                   exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-800">Assigned This Week</span>
+                      <button
+                        onClick={() => loadWeekData()}
+                        disabled={weekLoading}
+                        title="Refresh"
+                        className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-xs font-semibold text-slate-650 transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${weekLoading ? "animate-spin" : ""}`} />
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col gap-3">
                       <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
                         Assigned ({weekAssignedByPerson.length})
@@ -1631,6 +1645,7 @@ export default function Home() {
                           ))}
                         </div>
                       )}
+                    </div>
                     </div>
                   </div>
                 </motion.div>
