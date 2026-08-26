@@ -198,6 +198,7 @@ export default function Home() {
   // Navigation and Filter states
   const [activeDay, setActiveDay] = useState<typeof DAYS_OF_WEEK[number]>("MONDAY");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showAssignedPanel, setShowAssignedPanel] = useState<boolean>(false);
   
   // Modals
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
@@ -327,6 +328,44 @@ export default function Home() {
     });
     return workloads;
   }, [schedules, people]);
+
+  // Members assigned somewhere in the currently selected week, grouped by person — anyone
+  // assigned to more than one place this week shows every one of those places, not just one.
+  const weekAssignedByPerson = useMemo(() => {
+    const map = new Map<number, { person: Person; assignments: Place[] }>();
+    Object.entries(schedules).forEach(([placeIdStr, personId]) => {
+      if (personId === null || personId === undefined) return;
+      const place = places.find(p => Number(p.place_id) === Number(placeIdStr));
+      const person = people.find(p => Number(p.person_id) === Number(personId));
+      if (!place || !person) return;
+      const pid = Number(person.person_id);
+      if (!map.has(pid)) map.set(pid, { person, assignments: [] });
+      map.get(pid)!.assignments.push(place);
+    });
+
+    const list = Array.from(map.values());
+    list.forEach(entry => {
+      entry.assignments.sort((a, b) =>
+        DAYS_OF_WEEK.indexOf(a.meeting_day as typeof DAYS_OF_WEEK[number]) - DAYS_OF_WEEK.indexOf(b.meeting_day as typeof DAYS_OF_WEEK[number])
+      );
+    });
+    list.sort((a, b) => {
+      if (a.person.gender !== b.person.gender) return a.person.gender === "MALE" ? -1 : 1;
+      return compareByExportOrder(a.person, b.person);
+    });
+    return list;
+  }, [schedules, places, people]);
+
+  // Members with no assignment anywhere in the currently selected week
+  const weekUnassignedPeople = useMemo(() => {
+    const assignedIds = new Set(weekAssignedByPerson.map(e => Number(e.person.person_id)));
+    return people
+      .filter(p => !assignedIds.has(Number(p.person_id)))
+      .sort((a, b) => {
+        if (a.gender !== b.gender) return a.gender === "MALE" ? -1 : 1;
+        return compareByExportOrder(a, b);
+      });
+  }, [people, weekAssignedByPerson]);
 
   // Check if all places in a specific day are allocated
   const isDayFullyAllocated = (day: string) => {
@@ -1507,7 +1546,19 @@ export default function Home() {
               </div>
 
               <div className="flex items-center gap-3">
-                <button 
+                <button
+                  onClick={() => setShowAssignedPanel(v => !v)}
+                  className={`h-10 px-4 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                    showAssignedPanel
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-650 border-slate-200"
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Assigned This Week ({weekAssignedByPerson.length}/{people.length})
+                </button>
+
+                <button
                   onClick={handleAutoSchedule}
                   className="h-10 px-5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-650 border border-indigo-200 text-sm font-semibold flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                 >
@@ -1515,7 +1566,7 @@ export default function Home() {
                   Auto Schedule Week
                 </button>
 
-                <button 
+                <button
                   onClick={handleClearSchedule}
                   className="h-10 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-650 border border-red-200/60 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
                 >
@@ -1524,6 +1575,67 @@ export default function Home() {
                 </button>
               </div>
             </div>
+
+            {/* Assigned This Week panel */}
+            <AnimatePresence>
+              {showAssignedPanel && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-3">
+                      <h4 className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                        Assigned ({weekAssignedByPerson.length})
+                      </h4>
+                      {weekAssignedByPerson.length === 0 ? (
+                        <p className="text-xs text-slate-400">No one is assigned yet this week.</p>
+                      ) : (
+                        <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-1">
+                          {weekAssignedByPerson.map(({ person, assignments }) => (
+                            <div key={person.person_id} className="flex items-start justify-between gap-3 text-xs px-3 py-2 rounded-lg bg-emerald-50/60 border border-emerald-100">
+                              <span className="font-medium text-slate-800 truncate flex items-center gap-1.5 shrink-0">
+                                {person.name}
+                                {assignments.length > 1 && (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">×{assignments.length}</span>
+                                )}
+                              </span>
+                              <span className="text-slate-500 text-right">
+                                {assignments.map((place, idx) => (
+                                  <span key={place.place_id} className="whitespace-nowrap">
+                                    {place.name} · {DAY_MARATHI[place.meeting_day] || place.meeting_day}
+                                    {idx < assignments.length - 1 ? <br /> : null}
+                                  </span>
+                                ))}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider">
+                        Not Yet Assigned ({weekUnassignedPeople.length})
+                      </h4>
+                      {weekUnassignedPeople.length === 0 ? (
+                        <p className="text-xs text-slate-400">Everyone has an assignment this week.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5 max-h-72 overflow-y-auto pr-1 content-start">
+                          {weekUnassignedPeople.map(person => (
+                            <span key={person.person_id} className="text-xs px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-medium">
+                              {person.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Navigation Tabs and Search */}
             <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
