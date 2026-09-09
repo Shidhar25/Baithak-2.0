@@ -936,8 +936,6 @@ export default function Home() {
       sortedWeeks.forEach(wsd => {
         const weekSchedules = dataByWeek[wsd];
         const mondayDate = parseLocalDate(wsd);
-        const sundayDate = new Date(mondayDate);
-        sundayDate.setDate(sundayDate.getDate() + 6);
 
         // Date helpers for this specific week
         const formatRow3Date = (d: Date): string => {
@@ -992,20 +990,32 @@ export default function Home() {
         const ws: any = {};
 
         // Define column widths:
+        // Widths match the reference Chitya workbook exactly.
+        // SheetJS writes width = wch + 0.831473..., so wch = (Excel width) - 0.8314732142857143
         ws["!cols"] = [
-          { wch: 3 },  // A
-          { wch: 12 }, // B - दिनांक
-          { wch: 10 }, // C - वार
-          { wch: 10 }, // D - स्त्री\पु.
-          { wch: 22 }, // E - श्री बैठकीचे ठिकाण
-          { wch: 22 }, // F - वेळ
-          { wch: 3 },  // G
-          { wch: 12 }, // H - दिनांक
-          { wch: 10 }, // I - वार
-          { wch: 10 }, // J - स्त्री\पु.
-          { wch: 22 }, // K - श्री बैठकीचे ठिकाण
-          { wch: 22 }  // L - वेळ
+          { wch: 3.023995535714286 },  // A
+          { wch: 9.453683035714286 },  // B - दिनांक
+          { wch: 6.309151785714286 },  // C - वार
+          { wch: 5.023995535714286 },  // D - स्त्री\पु.
+          { wch: 13.309151785714286 }, // E - श्री बैठकीचे ठिकाण
+          { wch: 14.023995535714286 }, // F - वेळ
+          { wch: 3.023995535714286 },  // G
+          { wch: 9.453683035714286 },  // H - दिनांक
+          { wch: 6.309151785714286 },  // I - वार
+          { wch: 5.023995535714286 },  // J - स्त्री\पु.
+          { wch: 13.309151785714286 }, // K - श्री बैठकीचे ठिकाण
+          { wch: 14.309151785714286 }  // L - वेळ
         ];
+
+        // Print margins from the reference workbook (A4 portrait, narrow margins)
+        ws["!margins"] = {
+          left: 0.23622047244094488,
+          right: 0.23622047244094488,
+          top: 0.19685039370078741,
+          bottom: 0.19685039370078741,
+          header: 0.31496062992125984,
+          footer: 0.31496062992125984
+        };
 
         // Define cell styles
         const borderThin = {
@@ -1016,25 +1026,25 @@ export default function Home() {
         };
 
         const titleStyle = {
-          font: { name: "Calibri", sz: 11, bold: false },
+          font: { name: "Calibri", sz: 9, bold: false },
           alignment: { horizontal: "center", vertical: "center" },
           border: borderThin
         };
 
         const boldTitleStyle = {
-          font: { name: "Calibri", sz: 11, bold: true },
+          font: { name: "Calibri", sz: 9, bold: true },
           alignment: { horizontal: "center", vertical: "center" },
           border: borderThin
         };
 
         const headerStyle = {
-          font: { name: "Calibri", sz: 11, bold: true },
+          font: { name: "Calibri", sz: 9, bold: true },
           alignment: { horizontal: "center", vertical: "center" },
           border: borderThin
         };
 
         const cellStyle = {
-          font: { name: "Calibri", sz: 11, bold: false },
+          font: { name: "Calibri", sz: 9, bold: false },
           alignment: { horizontal: "center", vertical: "center" },
           border: borderThin
         };
@@ -1062,30 +1072,28 @@ export default function Home() {
             ? [1, 2, 3, 4, 5]
             : [7, 8, 9, 10, 11];
 
-          // Merged Rows 1-4
+          // Merged title rows (3, matching the reference workbook)
           merges.push({ s: { r: startRow - 1, c: colIndices[0] }, e: { r: startRow - 1, c: colIndices[4] } });
           merges.push({ s: { r: startRow,     c: colIndices[0] }, e: { r: startRow,     c: colIndices[4] } });
           merges.push({ s: { r: startRow + 1, c: colIndices[0] }, e: { r: startRow + 1, c: colIndices[4] } });
-          merges.push({ s: { r: startRow + 2, c: colIndices[0] }, e: { r: startRow + 2, c: colIndices[4] } });
 
           // Write cells for merged rows (all 5 columns to ensure borders are drawn)
           colLetters.forEach((col, idx) => {
-            writeCellRaw(col, startRow,     idx === 0 ? `दिनांक   ${formatDevnagariDateLocal(formatDate(mondayDate))}   ${formatDevnagariDateLocal(formatDate(sundayDate))}` : "", boldTitleStyle);
-            writeCellRaw(col, startRow + 1, idx === 0 ? "॥ श्री राम समर्थ ॥" : "", titleStyle);
-            writeCellRaw(col, startRow + 2, idx === 0 ? "॥ जय जय रघुवीर समर्थ ॥" : "", titleStyle);
-            writeCellRaw(col, startRow + 3, idx === 0 ? `श्री सदस्याचे नाव - ${person.name}` : "", boldTitleStyle);
+            writeCellRaw(col, startRow,     idx === 0 ? "॥ श्री राम समर्थ ॥" : "", titleStyle);
+            writeCellRaw(col, startRow + 1, idx === 0 ? "॥ जय जय रघुवीर समर्थ ॥" : "", titleStyle);
+            writeCellRaw(col, startRow + 2, idx === 0 ? `श्री सदस्याचे नाव - ${person.name}` : "", boldTitleStyle);
           });
 
           // Header Row
-          writeCellRaw(colLetters[0], startRow + 4, "दिनांक", headerStyle);
-          writeCellRaw(colLetters[1], startRow + 4, "वार", headerStyle);
-          writeCellRaw(colLetters[2], startRow + 4, "स्त्री\\पु.", headerStyle);
-          writeCellRaw(colLetters[3], startRow + 4, "श्री बैठकीचे ठिकाण", headerStyle);
-          writeCellRaw(colLetters[4], startRow + 4, "वेळ", headerStyle);
+          writeCellRaw(colLetters[0], startRow + 3, "दिनांक", headerStyle);
+          writeCellRaw(colLetters[1], startRow + 3, "वार", headerStyle);
+          writeCellRaw(colLetters[2], startRow + 3, "स्त्री\\पु.", headerStyle);
+          writeCellRaw(colLetters[3], startRow + 3, "श्री बैठकीचे ठिकाण", headerStyle);
+          writeCellRaw(colLetters[4], startRow + 3, "वेळ", headerStyle);
 
-          // Data Rows (Exactly 3 rows: startRow+5, startRow+6, startRow+7)
+          // Data Rows (Exactly 3 rows: startRow+4, startRow+5, startRow+6)
           for (let i = 0; i < 3; i++) {
-            const rowNum = startRow + 5 + i;
+            const rowNum = startRow + 4 + i;
             const sched = personSchedules[i] || null;
 
             if (sched) {
@@ -1123,7 +1131,7 @@ export default function Home() {
 
           const colOffset = idx % 2; // 0 = Left, 1 = Right
           const verticalIdx = Math.floor(idx / 2);
-          const startRow = 2 + verticalIdx * 9; // Row 2, 11, 20, 29...
+          const startRow = 2 + verticalIdx * 8; // Row 2, 10, 18, 26...
 
           writeCard(person, personSchedules, colOffset, startRow);
         });
@@ -1131,7 +1139,7 @@ export default function Home() {
         // Set Merges and boundary range
         ws["!merges"] = merges;
         const maxVerticalIdx = Math.ceil(activePeople.length / 2);
-        const maxRow = maxVerticalIdx > 0 ? 1 + maxVerticalIdx * 9 : 1;
+        const maxRow = maxVerticalIdx > 0 ? 1 + maxVerticalIdx * 8 : 1;
         ws["!ref"] = `B2:L${maxRow}`;
 
         XLSX.utils.book_append_sheet(workbook, ws, sheetName);
