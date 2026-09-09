@@ -14,6 +14,16 @@ const pool = new Pool({
   connectionTimeoutMillis: 20000,
 });
 
-export const query = (text: string, params?: any[]) => pool.query(text, params);
+export const query = (text: string, params?: any[]) => {
+  // Checked here rather than at module load: a throw at import time makes the route
+  // module fail to evaluate, so Next returns an HTML error page and callers doing
+  // res.json() get "Unexpected token '<'" instead of the real reason.
+  if (!connectionString) {
+    throw new Error(
+      'DATABASE_URL is not set. Add it to .env (see .env.example) and restart the dev server.'
+    );
+  }
+  return pool.query(text, params);
+};
 
 export default pool;
